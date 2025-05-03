@@ -10,7 +10,10 @@ app.get('/brand-proxy', async (req, res) => {
   const storeDomain = process.env.SHOPIFY_STORE_DOMAIN;
   const accessToken = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN;
 
-  console.log(`🔍 Incoming handle: ${brandHandle}`);
+  if (!brandHandle) {
+    console.warn('❌ Missing handle parameter');
+    return res.status(400).send('Missing handle');
+  }
 
   try {
     const response = await axios.post(
@@ -23,10 +26,17 @@ app.get('/brand-proxy', async (req, res) => {
                 node {
                   id
                   handle
-                  display_name: field(key: "display_name") { value }
-                  short_description: field(key: "short_description") { value }
-                  slide_images: field(key: "slide_images") { value }
-                  thumbnail_image: field(key: "thumbnail_image") { value }
+                  fields {
+                    key
+                    value
+                    reference {
+                      ... on MediaImage {
+                        image {
+                          url
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -41,30 +51,42 @@ app.get('/brand-proxy', async (req, res) => {
       }
     );
 
-    const brands = response.data.data?.metaobjects?.edges?.map(edge => {
+    // 디버그 로그
+    console.log("✅ Raw response from Shopify:", JSON.stringify(response.data, null, 2));
+
+    const brands = response.data?.data?.metaobjects?.edges?.map(edge => {
       const node = edge.node;
+      const fieldMap = {};
+
+      for (const field of node.fields) {
+        if (field.reference?.image?.url) {
+          if (!fieldMap[field.key]) fieldMap[field.key] = [];
+          fieldMap[field.key].push(field.reference.image.url);
+        } else {
+          fieldMap[field.key] = field.value;
+        }
+      }
+
       return {
         id: node.id,
         handle: node.handle,
-        display_name: node.display_name?.value,
-        short_description: node.short_description?.value,
-        slide_images: node.slide_images?.value,
-        thumbnail_image: node.thumbnail_image?.value
+        ...fieldMap
       };
-    });
+    }) || [];
 
     const matched = brands.find(b => b.handle === brandHandle);
 
     if (!matched) {
-      console.warn('⚠️ Brand not found');
+      console.warn(`❌ No brand matched for handle: ${brandHandle}`);
       return res.status(404).send('Brand not found');
     }
 
-    console.log('✅ Matched brand:', matched);
     res.json(matched);
-
   } catch (err) {
-    console.error('❌ Server Error:', err.response?.data || err.message);
+    console.error('❌ Shopify Admin API Error:', err.message);
+    if (err.response) {
+      console.error('Response:', JSON.stringify(err.response.data, null, 2));
+    }
     res.status(500).send('Server Error');
   }
 });
