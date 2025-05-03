@@ -8,7 +8,7 @@
     ],
     "routes": [
       {
-        "src": "/brand-proxy",
+        "src": "/brand-proxy(?:/)?",
         "dest": "server.js"
       }
     ]
