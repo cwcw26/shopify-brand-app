@@ -26,9 +26,17 @@ app.get('/brand', async (req, res) => {
                 node {
                   id
                   handle
-                  display_name
-                  short_description
-                  slide_images
+                  fields {
+                    key
+                    value
+                    reference {
+                      ... on MediaImage {
+                        image {
+                          url
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -43,14 +51,26 @@ app.get('/brand', async (req, res) => {
       }
     );
 
-    console.log("✅ Raw response from Shopify:", JSON.stringify(response.data, null, 2));
+    const brands = response.data.data.metaobjects.edges.map(edge => {
+      const node = edge.node;
+      const fieldMap = {};
 
-    if (!response.data || !response.data.data || !response.data.data.metaobjects) {
-      console.error('❌ Unexpected response structure from Shopify Admin API');
-      return res.status(500).send('Invalid response from Shopify');
-    }
+      for (const field of node.fields) {
+        if (field.reference && field.reference.image && field.reference.image.url) {
+          if (!fieldMap[field.key]) fieldMap[field.key] = [];
+          fieldMap[field.key].push(field.reference.image.url);
+        } else {
+          fieldMap[field.key] = field.value;
+        }
+      }
 
-    const brands = response.data.data.metaobjects.edges.map(edge => edge.node);
+      return {
+        id: node.id,
+        handle: node.handle,
+        ...fieldMap
+      };
+    });
+
     const matched = brands.find(b => b.handle === brandHandle);
 
     if (!matched) {
