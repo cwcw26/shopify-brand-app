@@ -1,46 +1,50 @@
 const express = require('express');
-const app = express();
 const cors = require('cors');
-require('dotenv').config();
+const axios = require('axios');
 
-const PORT = process.env.PORT || 3000;
-
-const SHOPIFY_ADMIN_API_TOKEN = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN;
-const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN; // 예: gdte2c-a8.myshopify.com
-
+const app = express();
 app.use(cors());
 
-app.get('/brand/:handle', async (req, res) => {
-  const brandHandle = req.params.handle;
+app.get('/brand', async (req, res) => {
+  const brandHandle = req.query.handle;
+  const storeDomain = process.env.SHOPIFY_STORE_DOMAIN;
+  const accessToken = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN;
 
   try {
-    const response = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/2023-10/metaobjects.json?type=brand`, {
-      method: 'GET',
-      headers: {
-        'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_TOKEN,
-        'Content-Type': 'application/json',
+    const response = await axios.post(
+      `https://${storeDomain}/admin/api/2023-10/graphql.json`,
+      {
+        query: `
+          {
+            metaobjects(type: "brand", first: 100) {
+              edges {
+                node {
+                  display_name
+                  short_description
+                  slide_images
+                }
+              }
+            }
+          }
+        `
       },
-    });
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken
+        }
+      }
+    );
 
-    const data = await response.json();
+    const brands = response.data.data.metaobjects.edges.map(edge => edge.node);
+    const matched = brands.find(b => b.display_name?.toLowerCase().replace(/\s+/g, '-') === brandHandle);
 
-    if (!data.metaobjects || data.metaobjects.length === 0) {
-      return res.status(404).json({ error: 'No brand metaobjects found' });
-    }
-
-    const matchedBrand = data.metaobjects.find((brand) => brand.handle === brandHandle);
-
-    if (!matchedBrand) {
-      return res.status(404).json({ error: 'Brand not found' });
-    }
-
-    res.status(200).json({ brand: matchedBrand });
-  } catch (error) {
-    console.error('Error fetching brand:', error);
-    res.status(500).json({ error: 'Failed to fetch brand metaobject' });
+    if (!matched) return res.status(404).send('Brand not found');
+    res.json(matched);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server Error');
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+module.exports = app;
