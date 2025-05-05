@@ -51,19 +51,20 @@ app.get('/brand-proxy', async (req, res) => {
       }
     );
 
-    // 디버그 로그
-    console.log("✅ Raw response from Shopify:", JSON.stringify(response.data, null, 2));
-
     const brands = response.data?.data?.metaobjects?.edges?.map(edge => {
       const node = edge.node;
       const fieldMap = {};
 
       for (const field of node.fields) {
+        const key = field.key;
+
+        // 이미지 참조 처리
         if (field.reference?.image?.url) {
-          if (!fieldMap[field.key]) fieldMap[field.key] = [];
-          fieldMap[field.key].push(field.reference.image.url);
+          if (!fieldMap[key]) fieldMap[key] = [];
+          fieldMap[key].push(field.reference.image.url);
         } else {
-          fieldMap[field.key] = field.value;
+          // 일반 텍스트 값 처리
+          fieldMap[key] = field.value;
         }
       }
 
