@@ -66,57 +66,49 @@ app.get('/brand-proxy', async (req, res) => {
       return res.status(404).send('Brand not found');
     }
 
-    // ✅ 로그: slide_images 내용 확인
-    console.log(`[${brandHandle}] Raw slide_images:`, matched.slide_images);
+    // Step 2: slide_images 파싱
+    let slideImageGids = [];
+    try {
+      slideImageGids = JSON.parse(matched.slide_images || '[]');
+      console.log(`[${brandHandle}] Raw slide_images:`, slideImageGids);
+    } catch (e) {
+      console.warn('❌ Failed to parse slide_images');
+      slideImageGids = [];
+    }
 
-    // Step 2: slide_images 필드 → 배열인지 확인
-    const slideImageGids = Array.isArray(matched.slide_images)
-      ? matched.slide_images
-      : [];
-
-    // Step 3: 각 GID에 대해 이미지 URL 조회
-    const imageUrls = await Promise.all(
-      slideImageGids.map(async (gid) => {
-        try {
-          const imgRes = await axios.post(
-            `https://${storeDomain}/admin/api/2023-10/graphql.json`,
-            {
-              query: `
-                {
-                  node(id: "${gid}") {
-                    ... on MediaImage {
-                      image {
-                        url
-                      }
-                    }
-                  }
+    // ✅ Step 3: 테스트용 GID 하나 요청
+    const testGid = "gid://shopify/MediaImage/32519380271164"; // 이 GID는 실제 값이어야 함
+    const testImgRes = await axios.post(
+      `https://${storeDomain}/admin/api/2023-10/graphql.json`,
+      {
+        query: `
+          {
+            node(id: "${testGid}") {
+              __typename
+              ... on MediaImage {
+                image {
+                  url
                 }
-              `
-            },
-            {
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Shopify-Access-Token': accessToken
               }
             }
-          );
-
-          return imgRes.data.data.node?.image?.url || null;
-        } catch (e) {
-          console.error(`❌ Failed to fetch image for ${gid}:`, e.message);
-          return null;
+          }
+        `
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken
         }
-      })
+      }
     );
 
-    // Step 4: 최종 응답 구성
+    console.log("✅ Test GID result:", JSON.stringify(testImgRes.data, null, 2));
+
+    // 임시 응답 (브랜드 본문 대신 테스트 결과만 반환)
     res.json({
-      id: matched.id,
-      handle: matched.handle,
-      display_name: matched.display_name,
-      short_description: matched.short_description,
-      thumbnail_image: matched.thumbnail_image,
-      slide_images: imageUrls.filter(Boolean) // null 제거
+      test_gid: testGid,
+      raw_slide_images: slideImageGids,
+      test_result: testImgRes.data
     });
   } catch (err) {
     console.error('❌ Shopify Admin API Error:', err.message);
