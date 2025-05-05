@@ -16,26 +16,33 @@ app.get('/brand-proxy', async (req, res) => {
   }
 
   try {
-    const brandQuery = `
+    const response = await axios.post(
+      `https://${storeDomain}/admin/api/2023-10/graphql.json`,
       {
-        metaobjects(type: "brand", first: 100) {
-          edges {
-            node {
-              id
-              handle
-              fields {
-                key
-                value
+        query: `
+          {
+            metaobjects(type: "brand", first: 100) {
+              edges {
+                node {
+                  id
+                  handle
+                  fields {
+                    key
+                    value
+                    reference {
+                      ... on MediaImage {
+                        image {
+                          url
+                        }
+                      }
+                    }
+                  }
+                }
               }
             }
           }
-        }
-      }
-    `;
-
-    const brandResponse = await axios.post(
-      `https://${storeDomain}/admin/api/2023-10/graphql.json`,
-      { query: brandQuery },
+        `
+      },
       {
         headers: {
           'Content-Type': 'application/json',
@@ -44,12 +51,23 @@ app.get('/brand-proxy', async (req, res) => {
       }
     );
 
-    const brands = brandResponse.data?.data?.metaobjects?.edges?.map(edge => {
+    console.log("✅ Raw response from Shopify:", JSON.stringify(response.data, null, 2));
+
+    const brands = response.data?.data?.metaobjects?.edges?.map(edge => {
       const node = edge.node;
       const fieldMap = {};
 
-      for (const field of node.fields) {
-        fieldMap[field.key] = field.value;
+      if (Array.isArray(node.fields)) {
+        for (const field of node.fields) {
+          if (field.reference?.image?.url) {
+            if (!fieldMap[field.key]) fieldMap[field.key] = [];
+            fieldMap[field.key].push(field.reference.image.url);
+          } else {
+            fieldMap[field.key] = field.value;
+          }
+        }
+      } else {
+        console.warn(`⚠️ No fields found in node: ${node.id}`);
       }
 
       return {
@@ -65,30 +83,6 @@ app.get('/brand-proxy', async (req, res) => {
       console.warn(`❌ No brand matched for handle: ${brandHandle}`);
       return res.status(404).send('Brand not found');
     }
-
-    const slideGids = JSON.parse(matched.slide_images || '[]');
-
-    // GID로 이미지 URL 조회 요청 준비
-    const slideQueries = slideGids.map((gid, index) => `img${index}: mediaImage(id: "${gid}") { image { url } }`).join("\n");
-
-    const mediaQuery = `{
-      ${slideQueries}
-    }`;
-
-    const imageResponse = await axios.post(
-      `https://${storeDomain}/admin/api/2023-10/graphql.json`,
-      { query: mediaQuery },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken
-        }
-      }
-    );
-
-    const resolvedImages = Object.values(imageResponse.data.data).map(media => media.image.url);
-
-    matched.slide_images = resolvedImages;
 
     res.json(matched);
   } catch (err) {
