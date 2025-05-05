@@ -1,3 +1,4 @@
+// ✅ server.js (Express API)
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -11,31 +12,28 @@ app.get('/brand-proxy', async (req, res) => {
   const accessToken = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN;
 
   if (!brandHandle) {
-    console.warn('❌ Missing handle parameter');
     return res.status(400).send('Missing handle');
   }
 
   try {
-    // Step 1: 브랜드 메타객체 조회
+    // Step 1: Fetch brand metaobjects
     const response = await axios.post(
       `https://${storeDomain}/admin/api/2023-10/graphql.json`,
       {
-        query: `
-          {
-            metaobjects(type: "brand", first: 100) {
-              edges {
-                node {
-                  id
-                  handle
-                  fields {
-                    key
-                    value
-                  }
+        query: `{
+          metaobjects(type: "brand", first: 100) {
+            edges {
+              node {
+                id
+                handle
+                fields {
+                  key
+                  value
                 }
               }
             }
           }
-        `
+        }`
       },
       {
         headers: {
@@ -61,60 +59,53 @@ app.get('/brand-proxy', async (req, res) => {
     }) || [];
 
     const matched = brands.find(b => b.handle === brandHandle);
-    if (!matched) {
-      console.warn(`❌ No brand matched for handle: ${brandHandle}`);
-      return res.status(404).send('Brand not found');
-    }
+    if (!matched) return res.status(404).send('Brand not found');
 
-    // Step 2: slide_images 파싱
+    // Step 2: Convert GIDs to URLs
     let slideImageGids = [];
     try {
       slideImageGids = JSON.parse(matched.slide_images || '[]');
-      console.log(`[${brandHandle}] Raw slide_images:`, slideImageGids);
     } catch (e) {
-      console.warn('❌ Failed to parse slide_images');
       slideImageGids = [];
     }
 
-    // ✅ Step 3: 테스트용 GID 하나 요청
-    const testGid = "gid://shopify/MediaImage/32519380271164"; // 이 GID는 실제 값이어야 함
-    const testImgRes = await axios.post(
-      `https://${storeDomain}/admin/api/2023-10/graphql.json`,
-      {
-        query: `
-          {
-            node(id: "${testGid}") {
-              __typename
-              ... on MediaImage {
-                image {
-                  url
+    const imageUrls = await Promise.all(
+      slideImageGids.map(async (gid) => {
+        try {
+          const imgRes = await axios.post(
+            `https://${storeDomain}/admin/api/2023-10/graphql.json`,
+            {
+              query: `{
+                node(id: "${gid}") {
+                  ... on MediaImage {
+                    image { url }
+                  }
                 }
+              }`
+            },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Shopify-Access-Token': accessToken
               }
             }
-          }
-        `
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken
+          );
+          return imgRes.data.data.node?.image?.url || null;
+        } catch {
+          return null;
         }
-      }
+      })
     );
 
-    console.log("✅ Test GID result:", JSON.stringify(testImgRes.data, null, 2));
-
-    // 임시 응답 (브랜드 본문 대신 테스트 결과만 반환)
     res.json({
-      test_gid: testGid,
-      raw_slide_images: slideImageGids,
-      test_result: testImgRes.data
+      id: matched.id,
+      handle: matched.handle,
+      display_name: matched.display_name,
+      short_description: matched.short_description,
+      thumbnail_image: matched.thumbnail_image,
+      slide_images: imageUrls.filter(Boolean)
     });
   } catch (err) {
-    console.error('❌ Shopify Admin API Error:', err.message);
-    if (err.response) {
-      console.error('Response:', JSON.stringify(err.response.data, null, 2));
-    }
     res.status(500).send('Server Error');
   }
 });
