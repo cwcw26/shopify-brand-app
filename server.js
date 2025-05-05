@@ -66,16 +66,23 @@ app.get('/brand-proxy', async (req, res) => {
       return res.status(404).send('Brand not found');
     }
 
-    // Step 2: slide_images 필드 파싱 → GID 배열
+    // ✅ 로그 추가: slide_images 원본 값 확인
+    console.log(`✅ [${brandHandle}] Raw slide_images:`, matched.slide_images);
+
+    // Step 2: slide_images 파싱
     let slideImageGids = [];
     try {
       slideImageGids = JSON.parse(matched.slide_images || '[]');
+      if (!Array.isArray(slideImageGids)) {
+        console.warn(`❌ slide_images is not an array:`, slideImageGids);
+        slideImageGids = [];
+      }
     } catch (e) {
-      console.warn('❌ Failed to parse slide_images');
+      console.warn(`❌ JSON.parse failed for slide_images:`, e.message);
       slideImageGids = [];
     }
 
-    // Step 3: 각 GID에 대해 이미지 URL 조회
+    // Step 3: 이미지 GID -> URL 변환
     const imageUrls = await Promise.all(
       slideImageGids.map(async (gid) => {
         try {
@@ -102,7 +109,11 @@ app.get('/brand-proxy', async (req, res) => {
             }
           );
 
-          return imgRes.data.data.node?.image?.url || null;
+          const url = imgRes.data?.data?.node?.image?.url || null;
+          if (!url) {
+            console.warn(`⚠️ No image URL found for GID: ${gid}`);
+          }
+          return url;
         } catch (e) {
           console.error(`❌ Failed to fetch image for ${gid}:`, e.message);
           return null;
@@ -110,14 +121,14 @@ app.get('/brand-proxy', async (req, res) => {
       })
     );
 
-    // Step 4: 최종 응답 구성
+    // Step 4: 응답
     res.json({
       id: matched.id,
       handle: matched.handle,
       display_name: matched.display_name,
       short_description: matched.short_description,
       thumbnail_image: matched.thumbnail_image,
-      slide_images: imageUrls.filter(Boolean) // null 제거
+      slide_images: imageUrls.filter(Boolean)
     });
   } catch (err) {
     console.error('❌ Shopify Admin API Error:', err.message);
