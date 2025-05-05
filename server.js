@@ -56,15 +56,12 @@ app.get('/brand-proxy', async (req, res) => {
       const fieldMap = {};
 
       for (const field of node.fields) {
-        const key = field.key;
-
-        // 이미지 참조 처리
         if (field.reference?.image?.url) {
-          if (!fieldMap[key]) fieldMap[key] = [];
-          fieldMap[key].push(field.reference.image.url);
+          // 배열로 모아야 여러 개 이미지 대응 가능
+          if (!fieldMap[field.key]) fieldMap[field.key] = [];
+          fieldMap[field.key].push(field.reference.image.url);
         } else {
-          // 일반 텍스트 값 처리
-          fieldMap[key] = field.value;
+          fieldMap[field.key] = field.value;
         }
       }
 
